@@ -1,0 +1,9 @@
+{
+  "unit": "USD millions",
+  "source": "FINRA Margin Statistics - Debit Balances in Customers' Securities Margin Accounts",
+  "note": "월별 Debit Balances(백만 달러)를 history 에 추가하세요. 앱 사이드바에서 입력하면 이 파일에 붙여넣을 JSON 을 만들어 줍니다.",
+  "history": {
+    "2026-03": 1220922,
+    "2026-04": 1304281
+  }
+}

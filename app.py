@@ -1,5 +1,7 @@
 import os
+import re
 import json
+from datetime import datetime
 
 import streamlit as st
 import plotly.graph_objects as go
@@ -8,11 +10,15 @@ import plotly.graph_objects as go
 # 4단계: 크롤링/대시보드 분리 구조
 #   - 데이터 크롤링은 data_updater.py 가 담당 (GitHub Actions 가 매일 실행)
 #   - app.py 는 크롤링하지 않고 market_data.json 을 읽어 화면에만 표시
-#   - 수동 입력 2개(Put/Call, Margin Debt)는 기존처럼 사이드바에서 입력
+#   - Put/Call 은 사이드바 수동 입력
+#   - Margin Debt 는 margin_history.json 의 월별 Debit Balances 로 MoM 자동 계산
 # ----------------------------------------------------------------------
 
 DATA_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "market_data.json"
+)
+MARGIN_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "margin_history.json"
 )
 
 # data_updater.py 가 수집하는 라이브 지표 (화면 표시 순서와 무관)
@@ -36,6 +42,37 @@ def load_market_data():
         return payload.get("last_updated"), payload.get("indicators", {})
     except Exception:
         return None, {}
+
+
+def load_margin_history():
+    """margin_history.json 을 읽어 {YYYY-MM: Debit Balances} dict 반환.
+
+    파일이 없거나 손상된 경우 빈 dict 를 반환한다.
+    """
+    try:
+        with open(MARGIN_FILE, "r", encoding="utf-8") as fp:
+            payload = json.load(fp)
+        history = payload.get("history", {})
+        return {str(k): float(v) for k, v in history.items()}
+    except Exception:
+        return {}
+
+
+def compute_margin_mom(history):
+    """월별 Debit Balances dict → (최신 MoM%, 최신월, 직전월).
+
+    데이터가 2개월 미만이거나 직전월 값이 0 이면 (None, ...) 을 반환한다.
+    가장 최근 2개 월(키 정렬 기준)을 사용한다.
+    """
+    months = sorted(history.keys())
+    if len(months) < 2:
+        return None, None, None
+    latest, prev = months[-1], months[-2]
+    prev_val = history[prev]
+    if prev_val <= 0:
+        return None, latest, prev
+    mom = (history[latest] - prev_val) / prev_val * 100.0
+    return mom, latest, prev
 
 
 # ======================================================================
@@ -115,7 +152,7 @@ st.markdown(
 # ======================================================================
 st.sidebar.header("⚙️ 수동 입력 (Manual Input)")
 st.sidebar.caption(
-    "크롤링이 막히거나 불안정한 두 지표는 값을 직접 입력하세요. "
+    "크롤링이 막히거나 불안정한 지표는 값을 직접 입력하세요. "
     "입력 즉시 종합 리스크 점수에 반영됩니다."
 )
 
@@ -124,11 +161,86 @@ manual_pcr = st.sidebar.number_input(
     min_value=0.40, max_value=1.50, value=0.55, step=0.01,
     help="CBOE 총 풋/콜 비율. 낮을수록 시장 과열 신호 (0.6 이하 = 위험 100점).",
 )
-manual_margin = st.sidebar.number_input(
-    "Margin Debt MoM 성장률 (%)",
-    min_value=-10.0, max_value=30.0, value=11.2, step=0.1,
-    help="FINRA 마진 데트 전월 대비 증감률. 높을수록 과열 (10% 이상 = 위험 100점).",
+
+# ----------------------------------------------------------------------
+# Margin Debt — 월별 Debit Balances 입력 → 전월 대비 MoM% 자동 계산
+# ----------------------------------------------------------------------
+st.sidebar.divider()
+st.sidebar.subheader("📈 Margin Debt (월별 입력)")
+st.sidebar.caption(
+    "FINRA Margin Statistics 의 **Debit Balances**(고객 신용융자 잔액, 단위: 백만 달러)를 "
+    "월별로 입력하면 직전 월 대비 증감률(MoM %)이 자동 계산됩니다."
 )
+
+# 세션 상태에 월별 기록 로드 — repo 의 margin_history.json 이 기준값
+if "margin_history" not in st.session_state:
+    st.session_state.margin_history = load_margin_history()
+margin_history = st.session_state.margin_history
+
+with st.sidebar.form("margin_input_form"):
+    in_month = st.text_input(
+        "기준 월 (YYYY-MM)", value=datetime.now().strftime("%Y-%m")
+    )
+    in_value = st.number_input(
+        "Debit Balances (백만 달러)",
+        min_value=0.0, value=0.0, step=1000.0, format="%.0f",
+        help="예: 마진 데트 총액이 약 9,000억 달러면 900000 입력.",
+    )
+    if st.form_submit_button("➕ 이번 달 추가 / 수정"):
+        month_key = in_month.strip()
+        if not re.fullmatch(r"\d{4}-\d{2}", month_key):
+            st.sidebar.error("월 형식이 올바르지 않습니다. 예: 2026-04")
+        elif in_value <= 0:
+            st.sidebar.error("Debit Balances 값을 0보다 크게 입력하세요.")
+        else:
+            margin_history[month_key] = float(in_value)
+            st.sidebar.success(
+                f"{month_key} 저장됨 — 아래 '영구 저장용 JSON' 을 커밋하세요."
+            )
+
+# 입력된 월 목록 확인 / 삭제
+if margin_history:
+    months_desc = sorted(margin_history.keys(), reverse=True)
+    with st.sidebar.expander(f"📋 입력된 월 {len(months_desc)}개 보기 / 삭제"):
+        for m in months_desc:
+            st.write(f"- **{m}** : {margin_history[m]:,.0f} 백만 $")
+        del_target = st.selectbox(
+            "삭제할 월", ["(선택 안 함)"] + months_desc, key="margin_del"
+        )
+        if st.button("🗑️ 선택한 월 삭제") and del_target != "(선택 안 함)":
+            margin_history.pop(del_target, None)
+            st.rerun()
+
+# MoM 자동 계산 결과
+margin_mom, mom_latest, mom_prev = compute_margin_mom(margin_history)
+if margin_mom is None:
+    st.sidebar.warning(
+        "MoM 증감률을 계산하려면 서로 다른 2개 월 이상의 데이터가 필요합니다."
+    )
+else:
+    st.sidebar.metric(
+        f"Margin Debt MoM ({mom_latest})",
+        f"{margin_mom:+.2f}%",
+        help=f"{mom_prev} → {mom_latest} Debit Balances 증감률 (자동 계산).",
+    )
+
+# repo 영구 저장용 JSON — Streamlit Cloud 는 세션 입력을 영구 저장하지 못함
+margin_payload = {
+    "unit": "USD millions",
+    "source": (
+        "FINRA Margin Statistics - "
+        "Debit Balances in Customers' Securities Margin Accounts"
+    ),
+    "history": dict(sorted(margin_history.items())),
+}
+with st.sidebar.expander("💾 영구 저장용 JSON (복사 → 커밋)"):
+    st.caption(
+        "Streamlit Cloud 는 입력값을 영구 저장하지 못합니다. 아래 내용을 저장소의 "
+        "`margin_history.json` 에 그대로 덮어쓰고 git 커밋하면 다음 접속에도 유지됩니다."
+    )
+    st.code(
+        json.dumps(margin_payload, ensure_ascii=False, indent=2), language="json"
+    )
 
 st.sidebar.divider()
 st.sidebar.caption(
@@ -150,27 +262,35 @@ for label in LIVE_LABELS:
         "value": "N/A", "delta": "(데이터 없음)", "raw": None, "status": "error"
     }
 
-# 수동 입력 2개를 동일한 dict 포맷으로 래핑
-manual = {
-    "Put/Call Ratio": {
-        "value": f"{manual_pcr:.2f}", "delta": "✍️ 수동 입력",
-        "raw": float(manual_pcr), "status": "manual",
-    },
-    "Margin Debt MoM": {
-        "value": f"{manual_margin:.1f}%", "delta": "✍️ 수동 입력",
-        "raw": float(manual_margin), "status": "manual",
-    },
+# Put/Call 수동 입력을 동일한 dict 포맷으로 래핑
+pcr_indicator = {
+    "value": f"{manual_pcr:.2f}", "delta": "✍️ 수동 입력",
+    "raw": float(manual_pcr), "status": "manual",
 }
+
+# Margin Debt MoM — 월별 입력값으로 자동 계산된 값을 래핑
+if margin_mom is not None:
+    margin_indicator = {
+        "value": f"{margin_mom:+.1f}%",
+        "delta": f"📅 {mom_prev} → {mom_latest} 자동 계산",
+        "raw": float(margin_mom), "status": "calc",
+    }
+else:
+    margin_indicator = {
+        "value": "N/A",
+        "delta": "월 데이터 2개 이상 필요",
+        "raw": None, "status": "error",
+    }
 
 # 화면 표시 순서대로 7개 지표 통합
 data = {
     "Fear & Greed Index": live["Fear & Greed Index"],
-    "Put/Call Ratio": manual["Put/Call Ratio"],
+    "Put/Call Ratio": pcr_indicator,
     "VIX 지수": live["VIX 지수"],
     "10년물 국채금리": live["10년물 국채금리"],
     "S&P500 200일 이격도": live["S&P500 200일 이격도"],
     "Market Breadth": live["Market Breadth"],
-    "Margin Debt MoM": manual["Margin Debt MoM"],
+    "Margin Debt MoM": margin_indicator,
 }
 
 # 종합 리스크 점수 계산
@@ -181,6 +301,7 @@ detail_by_label = {d["label"]: d for d in details}
 # 데이터 상태 요약 캡션
 live_cnt = sum(1 for d in data.values() if d["status"] == "live")
 manual_cnt = sum(1 for d in data.values() if d["status"] == "manual")
+calc_cnt = sum(1 for d in data.values() if d["status"] == "calc")
 error_cnt = sum(1 for d in data.values() if d["status"] == "error")
 
 if last_updated is None:
@@ -191,13 +312,15 @@ if last_updated is None:
     )
 else:
     st.caption(
-        f"🟢 실시간 {live_cnt}개 · ✍️ 수동 입력 {manual_cnt}개 · 🔴 에러 {error_cnt}개  |  "
+        f"🟢 실시간 {live_cnt}개 · ✍️ 수동 {manual_cnt}개 · 🧮 자동계산 {calc_cnt}개 · "
+        f"🔴 에러 {error_cnt}개  |  "
         f"데이터 수집 시각: {last_updated} (GitHub Actions 매일 갱신)"
     )
 if error_cnt:
     st.warning(
-        f"⚠️ 라이브 지표 {error_cnt}개를 읽지 못했습니다. "
-        "해당 지표는 중립값(50점)으로 종합 점수에 반영됩니다."
+        f"⚠️ 지표 {error_cnt}개를 읽지 못했습니다. "
+        "해당 지표는 중립값(50점)으로 종합 점수에 반영됩니다. "
+        "(Margin Debt MoM 이 N/A 라면 사이드바에서 월별 데이터를 2개 이상 입력하세요.)"
     )
 
 # ======================================================================
@@ -256,6 +379,8 @@ def _render_card(col, label):
         st.metric(label=label, value=d["value"], delta=d["delta"], delta_color="off")
         if d["status"] == "manual":
             st.caption(f"✍️ 수동 입력 · 위험점수 {norm:.0f}/100")
+        elif d["status"] == "calc":
+            st.caption(f"🧮 월별 입력 자동 계산 · 위험점수 {norm:.0f}/100")
         elif d["status"] == "error":
             st.caption("🔴 데이터 오류 · 중립값 50/100 적용")
         else:
