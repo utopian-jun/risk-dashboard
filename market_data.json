@@ -1,29 +1,29 @@
 {
-  "last_updated": "2026-06-18 23:40:59",
-  "last_updated_utc": "2026-06-18 23:40:59 UTC",
+  "last_updated": "2026-06-19 22:49:57",
+  "last_updated_utc": "2026-06-19 22:49:57 UTC",
   "indicators": {
     "Fear & Greed Index": {
-      "value": "38",
+      "value": "37",
       "delta": "Fear",
-      "raw": 37.5142857142857,
+      "raw": 37.2571428571429,
       "status": "live"
     },
     "VIX 지수": {
-      "value": "16.40",
-      "delta": "-2.04 (전일 대비)",
-      "raw": 16.399999618530273,
+      "value": "16.78",
+      "delta": "-1.66 (전일 대비)",
+      "raw": 16.780000686645508,
       "status": "live"
     },
     "10년물 국채금리": {
-      "value": "4.45%",
-      "delta": "-0.04%p (전일 대비)",
-      "raw": 4.450999736785889,
-      "status": "live"
+      "value": "N/A",
+      "delta": null,
+      "raw": null,
+      "status": "error"
     },
     "S&P500 200일 이격도": {
-      "value": "8.82%",
-      "delta": "+0.75%p (전일 대비)",
-      "raw": 8.815985610319178,
+      "value": "9.09%",
+      "delta": "+1.03%p (전일 대비)",
+      "raw": 9.09479232672279,
       "status": "live"
     },
     "Market Breadth": {
