@@ -1,6 +1,6 @@
 {
-  "last_updated": "2026-07-18 22:42:26",
-  "last_updated_utc": "2026-07-18 22:42:26 UTC",
+  "last_updated": "2026-07-19 22:44:17",
+  "last_updated_utc": "2026-07-19 22:44:17 UTC",
   "indicators": {
     "Fear & Greed Index": {
       "value": "37",
@@ -23,7 +23,7 @@
     "S&P500 200일 이격도": {
       "value": "7.19%",
       "delta": "-1.14%p (전일 대비)",
-      "raw": 7.188789849818078,
+      "raw": 7.1887896139546825,
       "status": "live"
     },
     "Market Breadth": {
