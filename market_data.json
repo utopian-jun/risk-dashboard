@@ -1,6 +1,6 @@
 {
-  "last_updated": "2026-08-29 03:26:52",
-  "last_updated_utc": "2026-08-29 03:26:52 UTC",
+  "last_updated": "2026-08-29 23:49:23",
+  "last_updated_utc": "2026-08-29 23:49:23 UTC",
   "indicators": {
     "Fear & Greed Index": {
       "value": "54",
@@ -17,13 +17,13 @@
     "10년물 국채금리": {
       "value": "4.72%",
       "delta": "+0.05%p (전일 대비)",
-      "raw": 4.720000267028809,
+      "raw": 4.71999979019165,
       "status": "live"
     },
     "S&P500 200일 이격도": {
       "value": "8.75%",
       "delta": "-0.32%p (전일 대비)",
-      "raw": 8.753851185361473,
+      "raw": 8.753851513769263,
       "status": "live"
     },
     "Market Breadth": {
